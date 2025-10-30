@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ESP32 3-Phase Monitor</title>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/raphael@2.3.0/raphael.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/justgage@1.6.1/justgage.min.js"></script>
+
+<style>
+body { background:#081b33; color:#fff; font-family:Segoe UI; margin:0; }
+.top { display:flex; justify-content:space-around; background:#102544; padding:15px; }
+.stat { text-align:center; }
+.stat h2 { color:#00ffff; margin:5px 0; }
+.card { background:#12284d; border-radius:10px; padding:10px; margin:10px; box-shadow:0 0 10px #0008; }
+.dashboard { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+</style>
+</head>
+<body>
+
+<div class="top">
+  <div class="stat"><h3>kVAh</h3><h2 id="kVAh">--</h2></div>
+  <div class="stat"><h3>kWh</h3><h2 id="kWh">--</h2></div>
+  <div class="stat"><h3>kVA</h3><h2 id="kVA">--</h2></div>
+  <div class="stat"><h3>Freq</h3><h2 id="Freq">-- Hz</h2></div>
+  <div class="stat"><h3>PF</h3><h2 id="PF">--</h2></div>
+</div>
+
+<div class="dashboard">
+  <div class="card">
+    <h3>Voltage</h3>
+    <canvas id="voltageChart"></canvas>
+  </div>
+  <div class="card">
+    <h3>Current</h3>
+    <canvas id="currentChart"></canvas>
+  </div>
+  <div class="card">
+    <h3>Voltage Gauges</h3>
+    <div id="g1" style="width:160px;height:120px;display:inline-block;"></div>
+    <div id="g2" style="width:160px;height:120px;display:inline-block;"></div>
+    <div id="g3" style="width:160px;height:120px;display:inline-block;"></div>
+    <div id="g4" style="width:160px;height:120px;display:inline-block;"></div>
+  </div>
+</div>
+
+<script>
+const ESP_URL = "http://192.168.1.100/data"; // URL JSON từ ESP32
+
+// === Biểu đồ điện áp ===
+const vctx = document.getElementById("voltageChart").getContext("2d");
+const voltageChart = new Chart(vctx, {
+  type: 'line',
+  data: { labels: [], datasets:[
+    {label:'V-RY', data:[], borderColor:'#00ffff'},
+    {label:'V-YB', data:[], borderColor:'#ffb300'},
+    {label:'V-BR', data:[], borderColor:'#ff4b4b'}
+  ]},
+  options:{ scales:{y:{beginAtZero:false}}, plugins:{legend:{labels:{color:'white'}}}}
+});
+
+// === Biểu đồ dòng ===
+const cctx = document.getElementById("currentChart").getContext("2d");
+const currentChart = new Chart(cctx, {
+  type: 'line',
+  data: { labels:[], datasets:[{label:'Current (A)', data:[], borderColor:'#00ff80'}] },
+  options:{ plugins:{legend:{labels:{color:'white'}}}}
+});
+
+// === Các đồng hồ ===
+let g1 = new JustGage({ id: "g1", min: 0, max: 500, title: "R-Y" });
+let g2 = new JustGage({ id: "g2", min: 0, max: 500, title: "Y-B" });
+let g3 = new JustGage({ id: "g3", min: 0, max: 500, title: "B-R" });
+let g4 = new JustGage({ id: "g4", min: 0, max: 500, title: "L-N" });
+
+// === Hàm cập nhật dữ liệu ===
+async function updateData() {
+  try {
+    const res = await fetch(ESP_URL);
+    const data = await res.json();
+
+    // Cập nhật số liệu chính
+    document.getElementById("kVAh").textContent = data.kVAh.toFixed(1);
+    document.getElementById("kWh").textContent = data.kWh.toFixed(1);
+    document.getElementById("kVA").textContent = data.kVA.toFixed(2);
+    document.getElementById("Freq").textContent = data.Freq.toFixed(1) + " Hz";
+    document.getElementById("PF").textContent = data.PF.toFixed(2);
+
+    // Thêm dữ liệu vào biểu đồ
+    let now = new Date().toLocaleTimeString().slice(0,5);
+    if (voltageChart.data.labels.length > 10) voltageChart.data.labels.shift();
+    voltageChart.data.labels.push(now);
+    voltageChart.data.datasets[0].data.push(data.VRY);
+    voltageChart.data.datasets[1].data.push(data.VYB);
+    voltageChart.data.datasets[2].data.push(data.VBR);
+    voltageChart.update();
+
+    if (currentChart.data.labels.length > 10) currentChart.data.labels.shift();
+    currentChart.data.labels.push(now);
+    currentChart.data.datasets[0].data.push(data.I);
+    currentChart.update();
+
+    // Cập nhật gauge
+    g1.refresh(data.VRY);
+    g2.refresh(data.VYB);
+    g3.refresh(data.VBR);
+    g4.refresh(data.VLN);
+
+  } catch(e) {
+    console.log("Lỗi kết nối ESP32:", e);
+  }
+}
+
+// Cập nhật mỗi 3 giây
+setInterval(updateData, 3000);
+updateData();
+</script>
+
+</body>
+</html>
